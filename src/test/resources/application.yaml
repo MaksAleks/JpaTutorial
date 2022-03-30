@@ -1,0 +1,14 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  #  datasource:
+#    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+#    url: jdbc:tc:postgresql:11.4://hostname/databasename?TC_DAEMON=true&TC_TMPFS=/var/lib/postgresql/data:rw
+#  session:
+#    store-type: none
+  datasource:
+    url: jdbc:postgresql://localhost:5432/test-db
+    username: postgres
+    password: postgres
+    driverClassName: org.postgresql.Driver
