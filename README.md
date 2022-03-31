@@ -507,22 +507,8 @@ create table users(
 И один коментарий может принадлежать только одному посту.
 
 Соответствующую связь между объектами `Post` и `PostComment` можно представить композицией:
-```plantuml
-@startuml
-class Post {
-	id: Long
-  title: String
-}
 
-class PostComment {
-	id: Long
-	review: String
-	post: Post
-}
-
-Post <-* PostComment
-@enduml
-```
+![](pics/many-to-one.png)
 
 Чтобы отобразить такую связь, используется аннотация `@ManyToOne` в дочерней сущности:
 
