@@ -2,16 +2,19 @@ package com.example.jpa
 
 import com.example.jpa.domain.Post
 import com.example.jpa.domain.PostComment
-import com.example.jpa.domain.repository.PostCommentRepository
 import com.example.jpa.domain.PostDetails
+import com.example.jpa.domain.Tag
+import com.example.jpa.domain.repository.PostCommentRepository
 import com.example.jpa.domain.repository.PostDetailsRepository
 import com.example.jpa.domain.repository.PostRepository
 import groovy.sql.Sql
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.transaction.support.TransactionTemplate
 import spock.lang.Specification
 
+import javax.persistence.EntityExistsException
 import javax.sql.DataSource
 import java.time.Instant
 
@@ -40,6 +43,8 @@ class MappingsTest extends Specification {
     }
 
     def cleanup() {
+        sql.execute("delete from post_tag")
+        sql.execute("delete from tag")
         sql.execute("delete from post_details")
         sql.execute("delete from post_comment")
         sql.execute("delete from post")
@@ -221,6 +226,7 @@ class MappingsTest extends Specification {
     }
 
     def "one-to-one shared key error on duplicate"() {
+        given:
         sql.executeInsert("insert into post values (1, 'post', 'post')")
 
         when:
@@ -239,6 +245,47 @@ class MappingsTest extends Specification {
         })
 
         then:
-        thrown DataIntegrityViolationException
+        def ex = thrown DataIntegrityViolationException
+        ex.getCause() instanceof EntityExistsException
+    }
+
+    def "many-to-many persist"() {
+        given:
+        def tag1 = Tag.builder()
+            .name("t1")
+            .build()
+        def tag2 = Tag.builder()
+            .name("t2")
+            .build()
+        def tag3 = Tag.builder()
+            .name("t3")
+            .build()
+        def post1 = Post.builder()
+            .tag(tag1)
+            .tag(tag2)
+            .title("post1")
+            .slug("post1")
+            .build()
+        def post2 = Post.builder()
+            .tag(tag2)
+            .tag(tag3)
+            .title("post2")
+            .slug("post2")
+            .build()
+
+        when:
+        txTemplate.execute({
+            postRepository.save(post1)
+            postRepository.save(post2)
+        })
+
+        then:
+        def tags = []
+        sql.query("select * from tag", {
+            while (it.next()) {
+                tags.add(it.getString('name'))
+            }
+        })
+        tags.containsAll(['t1', 't2', 't3'])
     }
 }

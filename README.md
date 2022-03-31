@@ -883,4 +883,117 @@ postDetailsRepository.save(postDetails)
 
 И теперь доставать сущность `PostDetails` можно по ключу `Post`
 
-[Spring Data performs some optimisations for readOnly transactions when using JPA provider](https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20%28a%20noticeable%20improvement%20on%20large%20object%20trees%29. "https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20(a%20noticeable%20improvement%20on%20large%20object%20trees).")
+
+### @ManyToMany
+
+Отображает связь "many-to-many" между таблицами, которая в БД реализуется с помощью третьей таблицы:
+
+![](https://vladmihalcea.com/wp-content/uploads/2017/05/many-to-many-post-tag.png)
+
+Может быть однонаправленной или двунаправленной
+
+#### Однонаправленная @ManyToMany
+
+Добавляем сущность `Tag`:
+```java
+@Entity
+@Table(name = "tag")
+public class Tag {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    Long id;
+
+    String name;
+}
+```
+
+Пусть владельцем связи будет сущность `Post`, и тогда она будет содержать коллекцию тэгов:
+
+```java
+@Entity
+@Table(name="post")
+class Post {
+	...
+	@ManyToMany(cascade = {PERSIST, MERGE})
+	@JoinTable(name = "post_tag",
+		joinColumns = @JoinColumn(name = "post_id"),
+		inverseJoinColumns = @JoinColumn(name = "tag_id")
+	)
+	List<Tag> tags = new ArrayList<>();
+}
+```
+
+Указав каскад `cascade = {PERSIST, MERGE}` при сохранении сущностей `Post` сущности `Tag` тоже будут сохраняться, а также будет создаваться запись в таблице `post_tag`, которая и реализует связь "many-to-many"
+
+**( ! )** **Cascading:** Указывать `cascade = {REMOVE}` смыла не имеет. Удаление сущности `Post` не должно провоцировать удаление сущности `Tag`. Аналогично и обратное. Должна удаляться только запись из таблицы `post_tag`.
+Поэтому вместо `cascade = ALL` указывается только `PERSIST` и `MERGE`
+
+Проблемы появляются при удалении тэгов из списка родительской сущности.
+```java
+post = createPostWithTags(tag1, tag2, tag3) //post.id = 1
+post.getTags().remove(tag1)
+postRepository.save(post);
+```
+
+```sql
+DELETE FROM post_tag WHERE post_id = 1
+
+INSERT INTO post_tag (post_id, tag_id) values (1, 2)
+INSERT INTO post_tag (post_id, tag_id) values (1, 3)
+```
+
+То есть сначала удаляются все записи с post_id = 1, а затем вставляются те, которые сохранились в кэше EM. T_T
+
+Чтобы эту проблему убрать, для `@ManyToMany` вместо List нужно использовать Set:
+```java
+
+	@ManyToMany(cascade = {PERSIST, MERGE})
+	@JoinTable(name = "post_tag",
+		joinColumns = @JoinColumn(name = "post_id"),
+		inverseJoinColumns = @JoinColumn(name = "tag_id")
+	)
+	Set<Tag> tags = new ArrayList<>();
+```
+
+Тогда при удалении тэгов из Set-а
+```java
+post = createPostWithTags(tag1, tag2, tag3) //post.id = 1
+post.getTags().remove(tag1)
+postRepository.save(post);
+```
+
+Hibernate сгенерирует правильный запрос:
+```sql
+DELETE FROM post_tag WHERE post_id = 1 and tag_id = 2
+```
+
+#### Двунаправленная @ManyToMany
+
+Для двунаправленной связи обе сущности содержат коллекции, ссылающиеся друг на друга.
+
+Так как в связи "many-to-many" обе стороны - родительские (а дочерней стороной выступает третья "соединительная" таблица), то разработчик сам выбирает, какая из сущностей будет **владеть** связью. И в подчиненной сущности нужно просто указать аннотацию `ManyToMany(mappedBy = ...)`.
+
+Например, пусть связью владеет сущность `Post`, тогда в сущности `Tag` указываем следующее:
+
+```java
+@ManyToMany(mappedBy = "tags")
+Set<Post> posts = new HashSet<>();
+```
+
+Атрибут `mappedBy` указывает на коллекцию `tags` в сущности `Post`.
+Это значит, что именно сущность `Post` ответственна за то, чтобы синхронизировать все изменения с соединительной таблицей.
+
+Здесь, как и для `@OneToMany`, все равно нужны вспомогательные методы добавления/удаления из коллекции, чтобы держать в синхронизированном состоянии обе сущности.
+
+```java
+public void addTag(Tag tag) {
+	tags.add(tag);
+	tag.getPosts().add(this);
+}
+
+public void removeTag(Tag tag) {
+	tags.remove(tag);
+	tag.getPosts().remove(this);
+}
+```

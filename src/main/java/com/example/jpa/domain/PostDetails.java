@@ -17,7 +17,6 @@ import java.time.Instant;
 public class PostDetails {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE)
     Long id;
 
     String createdBy;
