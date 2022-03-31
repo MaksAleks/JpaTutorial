@@ -437,6 +437,322 @@ String selectTitleById(@Param("id") Long id);
 
 ```
 
+# Object/relation mappings
+
+Существует три типа маппингов в JPA:
+- Сущности (`@Entity`)
+- Простые типы (String, Long, Dobule, Date, Boolean и т.д.)
+- Встраиваемые типы (`@Embeddable`)
+
+## Встраиваемые типы
+
+Отличаются от сущностей тем, что им запрещено иметь собственный идентификатор.
+
+ ```java
+@Table(name = "users")
+@Entity
+class User {
+	@Id
+	@Column(name ="id")
+	Long id;
+	
+	@Column(name = "login")
+	String login;
+	
+	@Embedded
+	FullName fullName;
+}
+
+@Embeddable
+class FullName {
+	
+	@Column(name = "first_name")
+	String firstName;
+	
+	@Column(name = "last_name")
+	String lastName;
+}
+```
+
+Они отлично подходят для реализации такого вида ассоциации из UML, как [композиция](https://en.wikipedia.org/wiki/Class_diagram#Composition)
+
+В табличном представлении поле `fullName` "раскрывается" в две отдельные колонки таблицы `users`
+
+```sql
+create table users(
+	id bigint primary key,
+	login varchar(256),
+	first_name varchar(256),
+	last_name varchar(256)
+)
+
+```
+
+## Связи между сущностями
+
+Мы рассмотрим основные виды связей
+- many-to-one (one-to-many)
+- one-to-one
+- many-to-many
+
+***
+
+### @ManyToOne
+
+Связь **many-to-one** представляет собой дочернюю сторону связи one-to-many между двумя таблицами. Дочерняя сторона в данном случае - это таблица, в которой располагается **внешний ключ** связи.
+
+![](https://vladmihalcea.com/wp-content/uploads/2019/04/one-to-many-table-relationship.png)
+
+В данном примере к одному посту можно оставить несколько комментариев.
+И один коментарий может принадлежать только одному посту.
+
+Соответствующую связь между объектами `Post` и `PostComment` можно представить композицией:
+```plantuml
+@startuml
+class Post {
+	id: Long
+  title: String
+}
+
+class PostComment {
+	id: Long
+	review: String
+	post: Post
+}
+
+Post <-* PostComment
+@enduml
+```
+
+Чтобы отобразить такую связь, используется аннотация `@ManyToOne` в дочерней сущности:
+
+```java
+@Entity(name = "PostComment")
+@Table(name = "post_comment")
+public class PostComment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    Long id;
+
+    String review;
+
+    @ManyToOne
+    Post post;
+}
+```
+
+При этом по умолчанию название колонки для внешнего ключа строится из:
+"*название поля для родительской сущности*"_"*название поля идентификатора в родительской сущности*"
+
+Т.е. в данном случае:
+"название поля родительской сущности" = "post"
+"название поля идентификатора в родительской сущности" = "id"
+=> `post_id`
+
+Чтобы сконфигурировать навание колонки внешнего ключа используется аннотация `@JoinColumn`:
+```java
+	@ManyToOne
+	@JoinColumn(name="post_fk")
+	Post post;
+```
+
+Объектая ассоциация в данном случае имеет такое же направления, что и реляционная связь. То есть объект `PostComment` ссылается на объект `Post`.
+
+Но если направление объектной ассоциации противоложное, то есть если объект `Post` ссылается на список объектов `PostComment`, нужна другая аннотация
+
+### @OneToMany
+
+Эта аннотация также отображает реляционную связь many-to-one
+
+Она нужна, чтобы поменять направленность ассоциации между объектами.
+Различают два вида @OneToMany:
+- **Двунаправленная**
+- **Однонаправленная**:
+***
+#### Двунаправленная @OneToMany
+
+Двунаправленная она потому, что в дочерней сущности есть соответствующая `@ManyToOne` ассоциация.
+
+```java
+@OneToMany(mappedBy = "post")
+List<PostComment> postCommentsList = new ArrayList();
+```
+
+При этом владельцем связи считается дочерняя сущность. Это значит, что именно **дочерняя сущность контролирует синхронизацию значения колонки внешнего ключа с кэшом `EntityManager`-а.** Параметр `mappedBy` нужно указывать именно для того, чтобы показать, что сущность не является владельцем связи.
+
+Если параметр `mappedBy` не указать, hibernate не поймет, что мы имеем ввиду, и создаст в БД третью таблицу:
+```sql
+create table post_post_comments (
+	post_id bigint not null,
+	post_comments_list_id bigint not null
+)
+```
+***
+Несмотря на то, что за синхронизацию внешнего ключа отвечает дочерняя сущность, поддерживать объекты в актуальном состоянии нужно и родительской и в дочерней сущности. Автоматически hibernate это не делает.
+
+Ниже показан пример, как нужно правильно добавлять/удалять сущность `PostComments` в список:
+
+```java
+void addPostComment(PostComment postComment) {
+	postComments.add(postComment);
+	postComment.setPost(this);
+}
+
+void removePostComment(PostComment postComment) {
+	postComments.remove(postComment);
+	postComment.setPost(null);
+}
+```
+
+**( ! )** Чтобы такой способ удаляния работал корректно, нужно переопределить меоды `equals` и `hashCode`. Иначе удаление из коллекции будет использовать дефолтный метод `equals`, который сравнивает ссылки.
+Так тоже может сработать, но только в рамках одной транзакции. Между разными транзакциями уже могут возникать проблемы, так как одна и та же запись в БД может быть представлена разными обектами.
+
+Одно из главных перимуществ использования двунаправленной ассоциации - это возможность каскадного распространения изменений из родительской сущности в дочернюю.
+```java
+@OneToMany(mappedBy = "post", cascade = CascadeType.ALL)
+List<PostComment> postCommentsList = new ArrayList();
+```
+
+Например:
+- если сохранить только `Post`, то все добавленные в список `postCommentsList`  комментарии тоже сохранятся.
+- если удалить родительскую сущность `Post`, дочерние тоже удалятся.
+
+При удалении комментария из коллекции списка `postCommentsList` и последующем сохранением сущности `Post`, объект `PostComment` не удалится из БД. Вместо этого в базу отправится следующий запрос:
+ ```sql
+ update post_comment set post_id=NULL where id=${post_comment_id}
+ ```
+
+Чтобы сущность удалилсь из БД, нужно добавить параметр
+`orphanRemoval=true` в аннотацию `@OneToMany`:
+
+```java
+@OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
+List<PostComment> postComments = new ArrayList<>();
+```
+***
+### Однонаправленная @OneToMany
+В дочерней сущности **отсутствует** соответствующая @ManyToOne ассоциация. При этом ***владельцем связи считается родительская сущность***
+
+Атрибут `mappedBy` больше не нужен.
+Однако нужна аннотация `@JoinColumn(name="post_id")`
+
+Если не указать `@JoinColumn` hibernate сгенерирует третью таблицу:
+
+![](https://vladmihalcea.com/wp-content/uploads/2017/03/one-to-many.png)
+
+Поэтому отображение теперь выглядит так
+```java
+@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+@JoinColumn(name = "post_id")
+private List<PostComment> postCommentsList = new ArrayList<>();
+```
+
+Однако **однонаправленная связь** имеет ряд недостатков (или недоработок со стороны hibernate), так как теперь сущность `Post` отвечает за синхронизацию комментариев `PostCommnet`  с кэшом.
+
+Допустим создается сущность `Post` с тремя комментариями, и затем сохраняется:
+```java
+@Transactional
+public void createPostWithComments() {
+	Post post = createPost("First post");
+	post.addComment(createComment("My first review"));
+	post.addComment(createComment("My second review"));
+	post.addComment(createComment("My third review"));
+	
+	postRepository.save(post);
+}
+```
+
+JPA отправит в БД следующие запросы:
+```sql
+insert into post (title, id)
+	values ('First post', 1)
+ 
+insert into post_comment (review, id)
+	values ('My first review', 2)
+ 
+insert into post_comment (review, id)
+	values ('My second review', 3)
+ 
+insert into post_comment (review, id)
+	values ('My third review', 4)
+ 
+update post_comment set post_id = 1 where id = 2
+ 
+update post_comment set post_id = 1 where id =  3
+ 
+update post_comment set post_id = 1 where id =  4
+
+```
+
+Зачем нужны три последних `update`-а? Все дело в том, в каком порядке EM выполняет операции `flush` ([вот статья](https://vladmihalcea.com/hibernate-facts-knowing-flush-operations-order-matters/) на эту тему).
+
+`persist` выполняется перед тем, как обновляются элементы коллекции.
+Таким образом, сначала EM выполняется три `insert` для комментариев без внешнего ключа.
+Затем обновляет их проставляя зачение внешнего ключа.
+
+Если добавленить в БД ограничение `non null` для внешнего ключа:
+```java
+@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+@JoinColumn(name = "u_post_id", nullable = false)
+List<PostComment> postComments;
+```
+
+то поведение еще более странное:
+```sql
+insert into post (title, id)
+	values ('First post', 1)
+ 
+insert into post_comment (review, id, post_id)
+	values ('My first review', 2, 1)
+ 
+insert into post_comment (review, id, post_id)
+	values ('My second review', 3, 1)
+ 
+insert into post_comment (review, id, post_id)
+	values ('My third review', 4, 1)
+ 
+update post_comment set post_id = 1 where id = 2
+ 
+update post_comment set post_id = 1 where id =  3
+ 
+update post_comment set post_id = 1 where id =  4
+```
+
+То есть JPA сгенерировал правильные `insert`, но `update`-ы все равно выполнил.
+
+Чтобы привести дела в норму, можно добавить параметр `updatable=false` в аннотацию `@JoinColumn`. Тогда получим то, что ожидаем.
+
+Я вначале подумал, что в этом случае сущность `PostComment` нельзя будет обновить. Однако следующий тест выполняется:
+```groovy
+	when:
+	long changedCommentId = txTemplate.execute({
+		def savedPost = uPostRepository.findById(1L).get()
+		def postComments = savedPost.getPostComments()
+
+		def postComment = postComments.get(0)
+		postComment.setReview("updated review")
+
+		uPostRepository.save(savedPost)
+		return postComment.getId()
+	})
+
+	then:
+	sql.query("select * from u_post_comment where id = ${changedCommentId}", {
+		while (it.next()) {
+			assert it.getString('review') == 'updated review'
+		}
+	})
+```
+
+***
+### Рекомендации по использованию @OneToMany
+
+Вообще из-за такого не очень понятного поведения рекомендуют не использовать однонаправленную `@OneToMany` связь.
+
+Вместо нее можно использовать двунаправленную связь. А еще лучше `@ManyToOne`. Потому что использовать `@OneToMany` мы можем в том случае, [если количество дочерних элементов не велико](https://clck.ru/eef2E), так как невозможно лимитировать размер коллекции `@OneToMany`.
+
+В большинстве случаев `@ManyToOne` - все, что вам нужно.
 ***
 
 [Spring Data performs some optimisations for readOnly transactions when using JPA provider](https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20%28a%20noticeable%20improvement%20on%20large%20object%20trees%29. "https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20(a%20noticeable%20improvement%20on%20large%20object%20trees).")

@@ -8,16 +8,10 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.transaction.support.TransactionTemplate
 import spock.lang.Specification
 
-import javax.persistence.EntityManager
-import javax.persistence.EntityManagerFactory
-import javax.persistence.EntityTransaction
-import javax.persistence.NoResultException
-import javax.persistence.Query
+import javax.persistence.*
 import javax.sql.DataSource
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import java.util.concurrent.ForkJoinPool
 import java.util.stream.Collectors
 
 @SpringBootTest
@@ -166,7 +160,7 @@ class FirstLevelCacheTest extends Specification {
         post.getTitle() == 'post'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated post'
+                assert it.getString('title') == 'updated post'
             }
         })
     }
@@ -226,6 +220,8 @@ class FirstLevelCacheTest extends Specification {
         em.createQuery("select p from Post p").getResultList()
         // remove data from database
         sql.execute("delete from post where id = 1")
+        // change data in database
+        sql.executeUpdate("update post set title = 'updated 2' where id = 2")
 
         when:
         List<Post> posts = em.createQuery("select p from Post p", Post)
@@ -235,14 +231,14 @@ class FirstLevelCacheTest extends Specification {
         posts.size() == 1
         with(posts.get(0)) {
             getId() == 2L
-            getTitle() == 'post2'
+            getTitle() == 'post2' // got from cache
         }
         sql.query("select * from post where id = 1", {
             assert !it.next()
         })
         sql.query("select * from post where id = 2", {
             while (it.next()) {
-                it.getString('title') == 'updated 2'
+                assert it.getString('title') == 'updated 2'
             }
         })
     }
@@ -271,7 +267,7 @@ class FirstLevelCacheTest extends Specification {
         posts.get(3L).getTitle() == 'post3' // phantom read
         sql.query("select * from post where id = 2", {
             while (it.next()) {
-                it.getString('title') == 'updated'
+                assert it.getString('title') == 'updated'
             }
         })
     }
@@ -291,7 +287,7 @@ class FirstLevelCacheTest extends Specification {
         post.getTitle() == 'post'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated post'
+                assert it.getString('title') == 'updated post'
             }
         })
     }
@@ -351,6 +347,8 @@ class FirstLevelCacheTest extends Specification {
         em.createQuery("select p from Post p").getResultList()
         // remove data from database
         sql.execute("delete from post where id = 1")
+        // change data in database
+        sql.executeUpdate("update post set title = 'updated 2' where id = 2")
 
         when:
         List<Post> posts = em.createNativeQuery("select * from post", Post)
@@ -367,7 +365,7 @@ class FirstLevelCacheTest extends Specification {
         })
         sql.query("select * from post where id = 2", {
             while (it.next()) {
-                it.getString('title') == 'updated 2'
+                assert it.getString('title') == 'updated 2'
             }
         })
     }
@@ -396,7 +394,7 @@ class FirstLevelCacheTest extends Specification {
         posts.get(3L).getTitle() == 'post3' // phantom read
         sql.query("select * from post where id = 2", {
             while (it.next()) {
-                it.getString('title') == 'updated'
+                assert it.getString('title') == 'updated'
             }
         })
     }
@@ -426,7 +424,7 @@ class FirstLevelCacheTest extends Specification {
         title == 'post'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated'
+                assert it.getString('title') == 'updated'
             }
         })
     }
@@ -454,12 +452,12 @@ class FirstLevelCacheTest extends Specification {
         postsById.get(2L).getTitle() == 'post2'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated 1'
+                assert it.getString('title') == 'updated 1'
             }
         })
         sql.query("select * from post where id = 2", {
             while (it.next()) {
-                it.getString('title') == 'updated 2'
+                assert it.getString('title') == 'updated 2'
             }
         })
     }
@@ -481,7 +479,7 @@ class FirstLevelCacheTest extends Specification {
         title == 'post'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated'
+                assert it.getString('title') == 'updated'
             }
         })
     }
@@ -509,12 +507,12 @@ class FirstLevelCacheTest extends Specification {
         postsById.get(2L).getTitle() == 'post2'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated 1'
+                assert it.getString('title') == 'updated 1'
             }
         })
         sql.query("select * from post where id = 2", {
             while (it.next()) {
-                it.getString('title') == 'updated 2'
+                assert it.getString('title') == 'updated 2'
             }
         })
     }
@@ -536,7 +534,7 @@ class FirstLevelCacheTest extends Specification {
         title == 'post'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated'
+                assert it.getString('title') == 'updated'
             }
         })
     }
@@ -564,12 +562,12 @@ class FirstLevelCacheTest extends Specification {
         postsById.get(2L).getTitle() == 'post2'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated 1'
+                assert it.getString('title') == 'updated 1'
             }
         })
         sql.query("select * from post where id = 2", {
             while (it.next()) {
-                it.getString('title') == 'updated 2'
+                assert it.getString('title') == 'updated 2'
             }
         })
     }
@@ -591,7 +589,7 @@ class FirstLevelCacheTest extends Specification {
         title == 'updated'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated'
+                assert it.getString('title') == 'updated'
             }
         })
     }
@@ -613,7 +611,7 @@ class FirstLevelCacheTest extends Specification {
         title == 'updated'
         sql.query("select * from post where id = 1", {
             while (it.next()) {
-                it.getString('title') == 'updated'
+                assert it.getString('title') == 'updated'
             }
         })
     }
