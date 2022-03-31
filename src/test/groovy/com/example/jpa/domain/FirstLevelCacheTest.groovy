@@ -14,6 +14,10 @@ import javax.persistence.EntityTransaction
 import javax.persistence.NoResultException
 import javax.persistence.Query
 import javax.sql.DataSource
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.ForkJoinPool
 import java.util.stream.Collectors
 
 @SpringBootTest
@@ -41,6 +45,8 @@ class FirstLevelCacheTest extends Specification {
     EntityTransaction txn
 
     PersistenceContext pc
+
+    Executor pool = Executors.newFixedThreadPool(1)
 
     def setup() {
         em = emf.createEntityManager()
@@ -132,7 +138,6 @@ class FirstLevelCacheTest extends Specification {
     def "cannot warm up with native query without specifying entity type"() {
         given: "trying to warm up cache with native query"
         sql.executeInsert("insert into post values (1, 'post', 'post')")
-        // warm up
         em.createNativeQuery("select * from post") // entity type is not specified
                 .getResultList()
         // change data in db
@@ -396,5 +401,176 @@ class FirstLevelCacheTest extends Specification {
         })
     }
 
+    /******************************************************
+     **********     Tests for spring data jpa    **********
+     ******************************************************/
 
+    // warming up the cache
+
+    def "warm up: findById"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        String title = txTemplate.execute({
+            // it's important to use findById instead of getById
+            // because getById returns only lazy reference
+            postRepository.findById(1L)
+
+            sql.executeUpdate("update post set title = 'updated' where id = 1")
+
+            return postRepository.getById(1L).getTitle()
+        })
+
+        then:
+        title == 'post'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated'
+            }
+        })
+    }
+
+    def "warm up: findAll"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post1', 'post1')")
+        sql.executeInsert("insert into post values (2, 'post2', 'post2')")
+
+        when:
+        Map<Long, Post> postsById = txTemplate.execute({
+            // it's important to use findById instead of getById
+            // because getById returns only lazy reference
+            postRepository.findAll()
+
+            sql.executeUpdate("update post set title = 'updated 1' where id = 1")
+            sql.executeUpdate("update post set title = 'updated 2' where id = 2")
+
+            return postRepository.findAll()
+        }).stream()
+            .collect(Collectors.toMap(Post::getId, it -> it))
+
+        then:
+        postsById.get(1L).getTitle() == 'post1'
+        postsById.get(2L).getTitle() == 'post2'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated 1'
+            }
+        })
+        sql.query("select * from post where id = 2", {
+            while (it.next()) {
+                it.getString('title') == 'updated 2'
+            }
+        })
+    }
+
+    def "warm up: select by id JPQL"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        String title = txTemplate.execute({
+            postRepository.selectById(1L)
+
+            sql.executeUpdate("update post set title = 'updated' where id = 1")
+
+            return postRepository.selectById(1L).getTitle()
+        })
+
+        then:
+        title == 'post'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated'
+            }
+        })
+    }
+
+    def "warm up: select All JPQL"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post1', 'post1')")
+        sql.executeInsert("insert into post values (2, 'post2', 'post2')")
+
+        when:
+        Map<Long, Post> postsById = txTemplate.execute({
+            // it's important to use findById instead of getById
+            // because getById returns only lazy reference
+            postRepository.selectAll()
+
+            sql.executeUpdate("update post set title = 'updated 1' where id = 1")
+            sql.executeUpdate("update post set title = 'updated 2' where id = 2")
+
+            return postRepository.selectAll()
+        }).stream()
+                .collect(Collectors.toMap(Post::getId, it -> it))
+
+        then:
+        postsById.get(1L).getTitle() == 'post1'
+        postsById.get(2L).getTitle() == 'post2'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated 1'
+            }
+        })
+        sql.query("select * from post where id = 2", {
+            while (it.next()) {
+                it.getString('title') == 'updated 2'
+            }
+        })
+    }
+
+    def "warm up: select by id Native Query"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        String title = txTemplate.execute({
+            postRepository.selectNativeById(1L)
+
+            sql.executeUpdate("update post set title = 'updated' where id = 1")
+
+            return postRepository.selectNativeById(1L).getTitle()
+        })
+
+        then:
+        title == 'post'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated'
+            }
+        })
+    }
+
+    def "warm up: select All Native Query"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post1', 'post1')")
+        sql.executeInsert("insert into post values (2, 'post2', 'post2')")
+
+        when:
+        Map<Long, Post> postsById = txTemplate.execute({
+            // it's important to use findById instead of getById
+            // because getById returns only lazy reference
+            postRepository.selectNativeAll()
+
+            sql.executeUpdate("update post set title = 'updated 1' where id = 1")
+            sql.executeUpdate("update post set title = 'updated 2' where id = 2")
+
+            return postRepository.selectNativeAll()
+        }).stream()
+                .collect(Collectors.toMap(Post::getId, it -> it))
+
+        then:
+        postsById.get(1L).getTitle() == 'post1'
+        postsById.get(2L).getTitle() == 'post2'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated 1'
+            }
+        })
+        sql.query("select * from post where id = 2", {
+            while (it.next()) {
+                it.getString('title') == 'updated 2'
+            }
+        })
+    }
 }
