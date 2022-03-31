@@ -561,8 +561,6 @@ public class PostComment {
 Двунаправленная она потому, что в дочерней сущности есть соответствующая `@ManyToOne` ассоциация.
 
 ```java
-import javax.persistence.Entity;
-
 @Entity
 @Table(name = "post")
 public class Post {
