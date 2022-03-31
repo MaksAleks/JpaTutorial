@@ -573,4 +573,48 @@ class FirstLevelCacheTest extends Specification {
             }
         })
     }
+
+    def "can't warm up with incorrect selection list"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        String title = txTemplate.execute({
+            postRepository.selectTitleById(1L)
+
+            sql.executeUpdate("update post set title = 'updated' where id = 1")
+
+            return postRepository.selectById(1L).getTitle()
+        })
+
+        then:
+        title == 'updated'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated'
+            }
+        })
+    }
+
+    def "cache won't be use for native query without full selection list"() {
+        given:
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        String title = txTemplate.execute({
+            postRepository.selectById(1L)
+
+            sql.executeUpdate("update post set title = 'updated' where id = 1")
+
+            return postRepository.selectTitleById(1L); // cache won't be used here
+        })
+
+        then:
+        title == 'updated'
+        sql.query("select * from post where id = 1", {
+            while (it.next()) {
+                it.getString('title') == 'updated'
+            }
+        })
+    }
 }

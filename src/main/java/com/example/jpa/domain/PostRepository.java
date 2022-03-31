@@ -20,6 +20,12 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     )
     List<Post> selectNativeAll();
 
+    @Query(
+            nativeQuery = true,
+            value = "select title from post where id = :id"
+    )
+    String selectTitleById(@Param("id") Long id);
+
     @Query("select p from Post p where p.id = :id")
     Post selectById(@Param("id") Long id);
 

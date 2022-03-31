@@ -322,6 +322,7 @@ assert selectedUser == cachedUser
 ```
 
 
+
 **Такой кэш дает ряд преимуществ**
 
 **Батчинг**
@@ -351,7 +352,6 @@ assert selectedUser == cachedUser
 
 Так вот, даже с уровнем изоляции READ COMMITED кэш первого уровня позволяет имитировать уровень REPEATABLE READ, но все же допуская аномалии PHANTOM READ и LOST UPDATE.
 
-
 ### Read-your-own-writes consistency
 Так как любой запрос - JPQL, Criteria API, Native Query - всегда достигает базы данных (кроме случаев, когда происходит second level cache hit), то нужно быть уверенным, что все зафиксированные в EM изменения попадут в базу перед выполнением запроса. Как минимум потому, что логика запроса может быть основана на этих изменениях.
 
@@ -376,10 +376,21 @@ assert selectedUser == cachedUser
 
 Таким образом защиты от фантомного чтения не происходит.
 
-Все вышесказанное справедливо как для JPA: JPQL и нативных запросов, так и для spring data jpa используя репозитории
-
 Защита от LOST UPDATE может быть реализована [с помощью оптимистических блокировок.](https://vladmihalcea.com/optimistic-locking-version-property-jpa-hibernate/)
 
+Все вышесказанное справедливо как для JPA: JPQL и нативных запросов, так и для spring data jpa используя репозитории.
+***
+**( ! )** Однако по поводу нативных запросов следует сказать, что не все нативные запросы будут сравнивать полученные из БД данные с сущностями в кэше. Сравнение будет происходить, когда в результате запроса возвращается именно сущность, и в списке вывода (selection list) присутствуют колонки, соответствующие всем полям данной сущности.
+
+Например следующий запрос вернет данные из базы, несмотря на то, что сущность с переданным идентификатором будет в кэше:
+```java
+@Query(
+		nativeQuery = true,
+		value = "select title from post where id = :id"
+)
+String selectTitleById(@Param("id") Long id);
+```
+***
 ### Разогрев кэша первого уровня
 
 Сущность попадает в кэш EM при:
@@ -404,5 +415,28 @@ assert selectedUser == cachedUser
 // cache woun't be populated with found entities
 ```
 
+*** **spring data jpa**
+Разогрев кэша также происходит при выполнении запросов используя **`JpaRepository`**.
+
+Это касается:
+-  существующих методов (`findById`, `findAll`, ...)
+-  сгенерированных запросов на основе парсинга названия метода
+-  JPQL запросов через аннотацию `@Query`
+-  Нативных запросов через аннотацию `@Query`
+***
+**( ! )** Наверное стоит упомянуть, что сущности будут попадать в кэш, только если нативный запрос возвращает именно сущность (или список сущностей), а не проекции, то есть в *списке вывода* запроса присутствуют все колонки, которые соответствуют полям возвращаемой сущности.
+
+Например при выполнении следующего запроса сущность переданным id не будет помещена в кэш
+
+```java
+@Query(
+		nativeQuery = true,
+		value = "select title from post where id = :id"
+)
+String selectTitleById(@Param("id") Long id);
+
+```
+
+***
 
 [Spring Data performs some optimisations for readOnly transactions when using JPA provider](https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20%28a%20noticeable%20improvement%20on%20large%20object%20trees%29. "https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20(a%20noticeable%20improvement%20on%20large%20object%20trees).")
