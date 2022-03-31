@@ -572,9 +572,7 @@ public class Post {
     private String title;
 
     private String slug;
-
-    @Builder.Default
-    @Setter(AccessLevel.PRIVATE)
+    
     @OneToMany(mappedBy = "post")
     List<PostComment> postComments = new ArrayList<>();
 }
