@@ -26,5 +26,6 @@ public class PostDetails {
 
     @OneToOne
     @MapsId
+    @JoinColumn(name = "post_id")
     Post post;
 }

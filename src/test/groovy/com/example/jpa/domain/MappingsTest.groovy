@@ -182,4 +182,57 @@ class MappingsTest extends Specification {
             }
         })
     }
+
+    def "uni one-to-one shared primary key"() {
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        txTemplate.execute({
+            def post = postRepository.findById(1L).get()
+            def postDetails = PostDetails.builder()
+                    .createdBy("admin")
+                    .createdAt(Instant.now())
+                    .post(post)
+                    .build()
+
+            postDetailsRepository.save(postDetails)
+        })
+
+        then:
+        sql.query("select * from post_details", {
+            while (it.next()) {
+                it.getLong('post_id') == 1
+            }
+        })
+
+        when:
+        def postDetails = txTemplate.execute({
+            return postDetailsRepository.findById(1L).get()
+        })
+
+        then:
+        postDetails.getCreatedBy() == "admin"
+    }
+
+    def "one-to-one shared key error on duplicate"() {
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        txTemplate.execute({
+            def post = postRepository.findById(1L).get()
+            def postDetails = PostDetails.builder()
+                    .createdBy("admin")
+                    .createdAt(Instant.now())
+                    .post(post)
+                    .build()
+            def duplicate = postDetails.toBuilder()
+                    .createdBy("test")
+                    .build()
+            postDetailsRepository.save(postDetails)
+            postDetailsRepository.save(duplicate)
+        })
+
+        then:
+        thrown DataIntegrityViolationException
+    }
 }
