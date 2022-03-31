@@ -121,7 +121,7 @@ class LifecycleTest extends Specification {
         then:
         posts.size() == 2
         posts.forEach {
-            em.contains(it)
+            assert em.contains(it)
             pc.getEntry(it)?.getStatus() == Status.MANAGED
         }
     }
@@ -147,7 +147,7 @@ class LifecycleTest extends Specification {
         given:
         sql.executeInsert("insert into post values (1, 'post1', 'post1')")
         sql.executeInsert("insert into post values (2, 'post2', 'post2')")
-        Query q = em.createNativeQuery("select * from post", Post.class)
+        Query q = em.createNativeQuery("select * from post", Post)
 
         when:
         List<Post> posts = q.getResultList()
@@ -155,7 +155,7 @@ class LifecycleTest extends Specification {
         then:
         posts.size() == 2
         posts.forEach {
-            em.contains(it)
+            assert em.contains(it)
             pc.getEntry(it)?.getStatus() == Status.MANAGED
         }
     }
@@ -295,7 +295,7 @@ class LifecycleTest extends Specification {
 
         then:
         sql.query("select * from post where id = 1", {
-            !it.next()
+            assert !it.next()
         })
     }
 

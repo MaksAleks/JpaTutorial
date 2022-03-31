@@ -242,6 +242,23 @@ tx.commit();
 Однако старая сущность останется в состоянии `DETACHED` навсегда. Метод `merge` создает новую сущность и возвращает ее. И она уже будет в состоянии `MANAGED`.
 > Следует упомнять, что код изменения `DETACHED` сущности не обязательно должно быть после открытия транзакции. `DETACHED` сущность - это обычная DTO, и вы можете делать с ней все, что угодно. Экземпляр `DETACHED` сущности уже никогда не перейдет в состояние `MANAGED`.
 
+
+
+## Entity Manager flushing
+
+JPA автоматически отправляет изменения в БД после коммита транзакции.
+Явно вызывать `EntityManager#flush()` не нужно - это считается плохой практикой.
+
+Помимо коммита транзакции `EntityManager#flush()` может быть спровоцирован рядом других событий:
+- JPQL запросы
+- Запросы через Criteria API
+- Нативные запросы
+
+Это нужно для поддержания консистентности данных с **кэшом первого уровня**. Подробнее об этом [чуть далее](#read-your-own-writes-consistency)
+
+Видимость этих изменений в других транзакциях зависит от их уровня изоляции.
+По умолчанию в JPA используется уровень READ COMMITED. Поэтому сюрпризов быть не должно и эти изменения не должны быть видны другим транзакциям (конечно, если вы об этом явно не попросите).
+
 ### Кэш первого уровня
 После того, как сущность была переведена в состояние `MANAGED`, она сохраняется внутри `EntityManager`-а в мапе:
 
@@ -291,6 +308,20 @@ public class EntityUniqueKey implements Serializable {
 2) Затем в кэше второго уровня (если настроен)
 3) В последнюю очередь EM делает запрос в БД
 
+
+```java
+// select * from USER where id = 1 && save it to cache
+User selectedUser = em.find(User.class, 1L);
+
+// cache hit
+User cachedUser = em.find(User.class, 1L);
+
+// two objects are identical i.e.
+// the object's references point to same memory address
+assert selectedUser == cachedUser
+```
+
+
 **Такой кэш дает ряд преимуществ**
 
 **Батчинг**
@@ -320,48 +351,58 @@ public class EntityUniqueKey implements Serializable {
 
 Так вот, даже с уровнем изоляции READ COMMITED кэш первого уровня позволяет имитировать уровень REPEATABLE READ, но все же допуская аномалии PHANTOM READ и LOST UPDATE.
 
+
+### Read-your-own-writes consistency
+Так как любой запрос - JPQL, Criteria API, Native Query - всегда достигает базы данных (кроме случаев, когда происходит second level cache hit), то нужно быть уверенным, что все зафиксированные в EM изменения попадут в базу перед выполнением запроса. Как минимум потому, что логика запроса может быть основана на этих изменениях.
+
+Для этого в спецификации JPA определена так называемая **flush-before-query** стратегия синхронизации. То есть, как уже поминалось ранее, по умолчанию JPQL, Criteria API и нативные запросы провоцируют `EntityManager#flush()`.
+
+*** **В spring data jpa** такое поведение также определено по умолчанию.
+
+### Кэш первого уровня для запросов
+
+Если не настроен кэш второго уровня, любые запросы всегда будут уходить в базу.
+При этом, так как в JPA уровень изоляции транзакций по умолчанию настроен READ COMMITED,  то запросы могут провоцировать следующие аномалии:
+- NON REPEATABLE READ
+- LOST UPDATE
+- PHANTOM READ
+
+При обработке результата запроса JPA сравнивает результаты с сущностями, которые уже есть в кэше. И если находит сущности с двумя одинаковыми идентификаторами - выбирает ту, которая есть в кэше, а не ту, которая пришла в результате запроса.
+Таким образом мы избавляемся от аномалии: NON REPEATABLE READ
+
+В случае, если данные были удалены, запрос не найдет их БД. Так как в результате запрос не вернет ни одной сущности, то никакой попытки пойти в кэш и не будет.
+
+В случае, если данные наоборот были добавлены, запрос найдет эти данные, хотя в кэше их нет.
+
+Таким образом защиты от фантомного чтения не происходит.
+
+Все вышесказанное справедливо как для JPA: JPQL и нативных запросов, так и для spring data jpa используя репозитории
+
+Защита от LOST UPDATE может быть реализована [с помощью оптимистических блокировок.](https://vladmihalcea.com/optimistic-locking-version-property-jpa-hibernate/)
+
+### Разогрев кэша первого уровня
+
+Сущность попадает в кэш EM при:
+- вызовах `persist` или `merge`
+- если была найдена методом `find`
+- Если была найдена в результате запросов JQPL, Criteria API и Native Query
+
+В случае с Native Query есть один нюанс: сущность попадает в кэш только в том случае, если при создании запроса был указан тип (класс) сущности.
 ```java
-// select * from USER where id = 1
-User selectedUser = em.find(User.class, 1L);
-
-// get user from cache (repeatable read)
-User cachedUser = em.find(User.class, 1L);
-
-// two objects are identical i.e.
-// the object's references point to same memory address
-assert selectedUser == cachedUser
+	em.createNativeQuery(
+			"select * from post",
+			Post // entity type is specified
+	).getResultList()
+	// cache will be populated with found entities
 ```
 
-
-
-## Entity Manager flushing
-
-JPA автоматически отправляет изменения в БД после коммита транзакции.
-Явно вызывать `EntityManager#flush()` не нужно - это считается плохой практикой.
-
-Помимо коммита транзакции `EntityManager#flush()` может быть спровоцирован рядом других событий
-
-**Запросы**
-
-JPA позволяет запрашивать данные не только методом `EntityMeneger#find`,
-но также используя запросы:
+Если тип не указывать, то даже если сущность была найдена в результате запроса, в кэш она не попадет - недостаточно информации для создания ключа мапы.
 ```java
-Query query = em.createQuery(
-	"select u from User u where p.id = :id"
-).setParameter("id", 1L);
-User user = query.getSingleResult();
-	
-Query nativeQuery = em.createNativeQuery()
+// entity type is not specified
+ em.createNativeQuery("select * from post")
+		.getResultList()
+// cache woun't be populated with found entities
 ```
 
-
-## First level cache
-
-
-
-
-## ???
-
-flush before native query
 
 [Spring Data performs some optimisations for readOnly transactions when using JPA provider](https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20%28a%20noticeable%20improvement%20on%20large%20object%20trees%29. "https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20(a%20noticeable%20improvement%20on%20large%20object%20trees).")
