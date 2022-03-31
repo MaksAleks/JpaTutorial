@@ -1,5 +1,11 @@
-package com.example.jpa.domain
+package com.example.jpa
 
+import com.example.jpa.domain.Post
+import com.example.jpa.domain.PostComment
+import com.example.jpa.domain.repository.PostCommentRepository
+import com.example.jpa.domain.PostDetails
+import com.example.jpa.domain.repository.PostDetailsRepository
+import com.example.jpa.domain.repository.PostRepository
 import groovy.sql.Sql
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest

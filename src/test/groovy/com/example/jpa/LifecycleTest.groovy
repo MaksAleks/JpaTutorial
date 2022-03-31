@@ -1,5 +1,7 @@
-package com.example.jpa.domain
+package com.example.jpa
 
+import com.example.jpa.domain.Post
+import com.example.jpa.domain.repository.PostRepository
 import groovy.sql.Sql
 import org.hibernate.engine.spi.PersistenceContext
 import org.hibernate.engine.spi.Status
