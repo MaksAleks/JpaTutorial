@@ -754,4 +754,131 @@ update post_comment set post_id = 1 where id =  4
 В большинстве случаев `@ManyToOne` - все, что вам нужно.
 ***
 
+
+### @OneToOne
+
+Со стороны БД связь "один к одному" основывается на уникальности колонки внешнего ключа в дочерней таблице. И может быть представлена следующим образом:
+
+![](https://vladmihalcea.com/wp-content/uploads/2016/07/one-to-one.png)
+
+Данная связь тоже может быть **двунаправленной** либо **однонаправленной**:
+
+#### Однонаправленная @OneToOne
+
+Даже объектная ассоциация @OneToOne похожа на @ManyToOne, если смотреть со стороны дочерней сущности.
+
+```java
+@Entity
+@Table(name = "post_details")
+public class PostDetails {
+
+	@Id
+	@GeneratedValue(strategy = GenerationType.SEQUENCE)
+	Long id;
+
+	String createdBy;
+
+	Instant createdAt;
+
+	@OneToOne
+	@JoinColumn(name = "post_fk")
+	Post post;
+}
+```
+
+Можно использовать аннотацию `@JoinColumn`, чтобы переопределить название колонки внешнего ключа.
+
+Однако просто так это не будет работать - по какой-то причине JPA не проставляет уникальный индекс для внешнего ключи. Это нужно сделать явно:
+- либо через параметр `@JoinColumn(unique=true)`
+- либо через `@Table(uniqueConstraints=...)`
+ ```
+@Table(
+        name = "post_details",
+        uniqueConstraints = @UniqueConstraint(
+                name = "post_id_fk_uk",
+                columnNames = "post_id"
+        )
+)
+```
+
+Владельцем связи является дочерняя сущность, то есть сущность `PostDetails` отвечает за генерацию FK. Это значит, что при добавлении сущности `Post` к сущности `PostDetails`, автоматически сгенерится значение внешнего ключа:
+```groovy
+def post = postRepository.findById(1L).get()
+def postDetails = PostDetails.builder()
+	.createdBy("admin")
+	.createdAt(Instant.now())
+	.post(post)
+	.build()
+
+postDetailsRepository.save(postDetails)
+```
+
+```sql
+insert into post_details (created_at, created_by, post_id, id) 
+values (
+	'2022-03-31 15:58:35.968539',
+	'admin',
+	'1', -- post_id foreign key
+	'1'
+)
+```
+
+#### Двунаправленная @OneToOne
+В случае двунаправленной связи в родительской сущности тоже добавляется ассоциация `@OneToOne`, направленная в сторону дочерней. При этом владельцем связи считается дочерная сущность - поэтому используется атрибут `mappedBy`:
+
+```java
+@Entity
+@Table(name = "post")
+public class Post {
+	...
+	@OneToOne(mappedBy = "post")
+	PostDetails details;
+}
+```
+
+#### MapsId для повышения эффективности
+В предложенном выше варинте связи между таблицами есть недостаток - явное указание уникальности внешнего ключа. Вместо этого можно просто сделать PK = FK.
+![](https://vladmihalcea.com/wp-content/uploads/2016/07/one-to-one-shared-pk.png)
+
+Чтобы поддержать такое отображение нужны следующие изменения в дочерней сущности:
+```java
+@Entity
+@Table
+public class PostDetails {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    Long id;
+
+    String createdBy;
+
+    Instant createdAt;
+
+    @OneToOne
+    @MapsId
+    Post post;
+}
+```
+
+В этом случае внешний ключ по умолчанию будет называться **post_id**
+Поменять его название можно все той же аннотацией `@JoinColumn`:
+```java
+    @OneToOne
+    @MapsId
+		@JoinColumn(name = "post_id_fk")
+    Post post;
+```
+
+Способ сохранения `PostDetails` при этом никак не поменяется - следующий код продолжит работать:
+```
+def post = postRepository.findById(1L).get()
+def postDetails = PostDetails.builder()
+	.createdBy("admin")
+	.createdAt(Instant.now())
+	.post(post)
+	.build()
+
+postDetailsRepository.save(postDetails)
+```
+
 [Spring Data performs some optimisations for readOnly transactions when using JPA provider](https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20%28a%20noticeable%20improvement%20on%20large%20object%20trees%29. "https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#:~:text=Furthermore%2C%20Spring%20performs%20some%20optimizations%20on%20the%20underlying%20JPA%20provider.%20For%20example%2C%20when%20used%20with%20Hibernate%2C%20the%20flush%20mode%20is%20set%20to%20NEVER%20when%20you%20configure%20a%20transaction%20as%20readOnly%2C%20which%20causes%20Hibernate%20to%20skip%20dirty%20checks%20(a%20noticeable%20improvement%20on%20large%20object%20trees).")

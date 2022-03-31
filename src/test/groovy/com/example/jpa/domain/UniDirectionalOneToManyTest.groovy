@@ -9,7 +9,7 @@ import spock.lang.Specification
 import javax.sql.DataSource
 
 @SpringBootTest
-class UniDirectionalOneToOneTest extends Specification {
+class UniDirectionalOneToManyTest extends Specification {
 
     @Autowired
     UPostRepository uPostRepository

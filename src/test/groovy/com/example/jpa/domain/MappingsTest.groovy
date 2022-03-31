@@ -7,6 +7,7 @@ import org.springframework.transaction.support.TransactionTemplate
 import spock.lang.Specification
 
 import javax.sql.DataSource
+import java.time.Instant
 
 @SpringBootTest
 class MappingsTest extends Specification {
@@ -16,6 +17,9 @@ class MappingsTest extends Specification {
 
     @Autowired
     PostCommentRepository postCommentRepository
+
+    @Autowired
+    PostDetailsRepository postDetailsRepository
 
     @Autowired
     TransactionTemplate txTemplate
@@ -30,6 +34,7 @@ class MappingsTest extends Specification {
     }
 
     def cleanup() {
+        sql.execute("delete from post_details")
         sql.execute("delete from post_comment")
         sql.execute("delete from post")
     }
@@ -155,4 +160,26 @@ class MappingsTest extends Specification {
         })
     }
 
+    def "uni one-to-one"() {
+        sql.executeInsert("insert into post values (1, 'post', 'post')")
+
+        when:
+        txTemplate.execute({
+            def post = postRepository.findById(1L).get()
+            def postDetails = PostDetails.builder()
+                .createdBy("admin")
+                .createdAt(Instant.now())
+                .post(post)
+                .build()
+
+            postDetailsRepository.save(postDetails)
+        })
+
+        then:
+        sql.query("select * from post_details", {
+            while (it.next()) {
+                it.getLong('post_id') == 1
+            }
+        })
+    }
 }
