@@ -561,8 +561,24 @@ public class PostComment {
 Двунаправленная она потому, что в дочерней сущности есть соответствующая `@ManyToOne` ассоциация.
 
 ```java
-@OneToMany(mappedBy = "post")
-List<PostComment> postCommentsList = new ArrayList();
+import javax.persistence.Entity;
+
+@Entity
+@Table(name = "post")
+public class Post {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    private String title;
+
+    private String slug;
+
+    @Builder.Default
+    @Setter(AccessLevel.PRIVATE)
+    @OneToMany(mappedBy = "post")
+    List<PostComment> postComments = new ArrayList<>();
 ```
 
 При этом владельцем связи считается дочерняя сущность. Это значит, что именно **дочерняя сущность контролирует синхронизацию значения колонки внешнего ключа с кэшом `EntityManager`-а.** Параметр `mappedBy` нужно указывать именно для того, чтобы показать, что сущность не является владельцем связи.
