@@ -997,3 +997,67 @@ public void removeTag(Tag tag) {
 	tag.getPosts().remove(this);
 }
 ```
+
+## Наследование
+
+Наследование таблиц по умолчанию не поддерживаются.
+JPA (и Hibernate) в частности поддерживает наследование сущностей, определяя три стратегии:
+- Создание единой таблицы (тогда в не которых колонках будут null)
+- Родительская + Дочерние таблицы (При этом при запросе данных нужно будет делать JOIN)
+- Отдельные таблицы на каждую дочернюю сущность
+
+Объявляется наследование просто - над базовой сущностью нужно поставить аннотацию `@Inheritance` и указать стратегию.  
+Пример - базовый класс [JOIN strategy](src/main/java/com/example/jpa/domain/Request.java):
+
+```java
+@Data
+@Entity
+@SuperBuilder
+@NoArgsConstructor
+@Inheritance(
+        strategy = InheritanceType.JOINED
+)
+@Table(name = "request")
+@EntityListeners(AuditingEntityListener.class)
+@AllArgsConstructor
+public class Request {
+
+    @Id
+    @Builder.Default
+    String id = UUID.randomUUID().toString();
+
+    @Enumerated(EnumType.STRING)
+    Status status;
+
+    @CreatedDate
+    @Column(updatable = false)
+    Instant created;
+
+    enum Status {
+        NEW,
+        SENT,
+        SUCCESS,
+        FAILURE
+    }
+}
+```
+
+И [класс наследник](src/main/java/com/example/jpa/domain/create/CreateRequest.java):
+
+```java
+@Data
+@Entity
+@Table(name = "create_request")
+@EqualsAndHashCode(callSuper = true)
+@SuperBuilder
+@NoArgsConstructor
+@AllArgsConstructor
+public class CreateRequest extends Request {
+
+    @Embedded
+    CreatedObject createdObject;
+}
+```
+
+У [Vlad Mihalcea](https://github.com/vladmihalcea) в блоке есть отличная  
+[подборка статей](https://vladmihalcea.com/tag/inheritance/) на тему наследования
