@@ -1,6 +1,7 @@
-package com.example.jpa.domain.create;
+package com.example.jpa.domain.get;
 
-import com.example.jpa.domain.Request;
+import com.example.jpa.domain.RequestJoinedStrategy;
+import com.example.jpa.domain.create.CreatedObject;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -12,13 +13,13 @@ import javax.persistence.Entity;
 import javax.persistence.Table;
 
 @Data
-@Entity
-@Table(name = "create_request")
 @EqualsAndHashCode(callSuper = true)
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CreateRequest extends Request {
+@Entity
+@Table(name = "get_request_joined")
+public class GetRequestJoined extends RequestJoinedStrategy {
 
     @Embedded
     CreatedObject createdObject;

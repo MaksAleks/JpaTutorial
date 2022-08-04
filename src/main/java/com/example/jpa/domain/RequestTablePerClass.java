@@ -1,6 +1,9 @@
 package com.example.jpa.domain;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -14,12 +17,12 @@ import java.util.UUID;
 @SuperBuilder
 @NoArgsConstructor
 @Inheritance(
-        strategy = InheritanceType.JOINED
+        strategy = InheritanceType.TABLE_PER_CLASS
 )
-@Table(name = "request")
+@Table(name = "request_tpc")
 @EntityListeners(AuditingEntityListener.class)
 @AllArgsConstructor
-public class Request {
+public class RequestTablePerClass {
 
     @Id
     @Builder.Default
